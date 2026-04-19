@@ -1,0 +1,11 @@
+data/
+*.log
+*.ical
+*.ics
+.env
+.env.*
+!.env.example
+.DS_Store
+node_modules/
+.vscode/
+.idea/

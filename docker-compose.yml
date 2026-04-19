@@ -1,0 +1,34 @@
+services:
+  urnik:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: urnik-viewer:latest
+    container_name: urnik
+    environment:
+      PORT: 8080
+      TZ: Europe/Ljubljana
+      ENRICH_URL: ${ENRICH_URL:-}
+      DATA_DIR: /app/data
+    volumes:
+      - urnik_data:/app/data
+    networks:
+      - caddy_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+volumes:
+  urnik_data:
+
+networks:
+  caddy_network:
+    external: true
