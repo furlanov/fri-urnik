@@ -8,8 +8,10 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 const DEFAULT_TIMETABLE_URL = process.env.ENRICH_URL || process.env.TIMETABLE_URL || "";
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, "data"));
 const IMPORT_CACHE_PATH = path.join(DATA_DIR, "import-cache.json");
+const HOLIDAY_CACHE_PATH = path.join(DATA_DIR, "holiday-cache.json");
 const CONFIG_PATH = path.join(DATA_DIR, "config.json");
 const TIMEZONE = process.env.TZ || "Europe/Ljubljana";
+const HOLIDAY_API_BASE_URL = "https://date.nager.at/api/v3/PublicHolidays";
 
 const DAY_CODES = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
 const TYPE_LABELS = {
@@ -29,6 +31,7 @@ const MIME_TYPES = {
 
 const scheduleCache = new Map();
 let importStorePromise = null;
+let holidayStorePromise = null;
 let configStorePromise = null;
 
 function hashId(value) {
@@ -79,28 +82,35 @@ async function getSchedule(options = {}) {
   }
 
   const cached = scheduleCache.get(importData.url);
-  if (cached && cached.sourceVersion === importData.version) {
-    return cached.payload;
+  let payload = cached?.sourceVersion === importData.version ? cached.payload : null;
+
+  if (!payload) {
+    const ical = importData.icalContent;
+    payload = parseCalendar(
+      ical,
+      {
+        sourceName: importData.sourceName || "FRI timetable",
+        sourceUrl: importData.url,
+        modified: importData.fetchedAt ? new Date(importData.fetchedAt) : new Date(),
+        size: Buffer.byteLength(ical, "utf8"),
+      },
+      importData
+    );
+
+    scheduleCache.set(importData.url, {
+      sourceVersion: importData.version,
+      payload,
+    });
   }
 
-  const ical = importData.icalContent;
-  const parsed = parseCalendar(
-    ical,
-    {
-      sourceName: importData.sourceName || "FRI timetable",
-      sourceUrl: importData.url,
-      modified: importData.fetchedAt ? new Date(importData.fetchedAt) : new Date(),
-      size: Buffer.byteLength(ical, "utf8"),
-    },
-    importData
-  );
-
-  scheduleCache.set(importData.url, {
-    sourceVersion: importData.version,
-    payload: parsed,
+  const holidays = await getHolidayCalendar(payload.range, {
+    force: options.forceImport,
   });
 
-  return parsed;
+  return {
+    ...payload,
+    holidays,
+  };
 }
 
 function emptyImport(error = "") {
@@ -269,6 +279,26 @@ async function saveConfigStore(store) {
   await writeJsonAtomic(CONFIG_PATH, store);
 }
 
+async function loadHolidayStore() {
+  if (!holidayStorePromise) {
+    holidayStorePromise = fs
+      .readFile(HOLIDAY_CACHE_PATH, "utf8")
+      .then((content) => JSON.parse(content))
+      .catch((error) => {
+        if (error.code === "ENOENT") return { years: {} };
+        throw error;
+      });
+  }
+  const store = await holidayStorePromise;
+  store.years ||= {};
+  return store;
+}
+
+async function saveHolidayStore(store) {
+  holidayStorePromise = Promise.resolve(store);
+  await writeJsonAtomic(HOLIDAY_CACHE_PATH, store);
+}
+
 async function writeJsonAtomic(destination, payload) {
   await fs.mkdir(DATA_DIR, { recursive: true });
   const tempPath = `${destination}.${process.pid}.${Date.now()}.${Math.random()
@@ -276,6 +306,72 @@ async function writeJsonAtomic(destination, payload) {
     .slice(2)}.tmp`;
   await fs.writeFile(tempPath, JSON.stringify(payload, null, 2));
   await fs.rename(tempPath, destination);
+}
+
+async function getHolidayCalendar(range, options = {}) {
+  const years = holidayYearsForRange(range);
+  if (!years.length) return { dates: {} };
+
+  const store = await loadHolidayStore();
+  const dates = {};
+  let changed = false;
+
+  for (const year of years) {
+    const existing = store.years[String(year)];
+    let holidays = existing?.holidays;
+
+    if (!holidays || options.force) {
+      const fetched = await fetchHolidayYear(year);
+      if (fetched) {
+        store.years[String(year)] = { year, fetchedAt: new Date().toISOString(), holidays: fetched };
+        holidays = fetched;
+        changed = true;
+      }
+    }
+
+    for (const holiday of holidays || []) dates[holiday.date] = holiday;
+  }
+
+  if (changed) await saveHolidayStore(store);
+  return { dates };
+}
+
+async function fetchHolidayYear(year) {
+  try {
+    const response = await fetch(`${HOLIDAY_API_BASE_URL}/${year}/SI`, {
+      headers: { accept: "application/json", "user-agent": "urnik-viewer/1.0" },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) throw new Error(`Holiday API returned ${response.status}`);
+    return normalizeHolidayPayload(await response.json());
+  } catch (error) {
+    console.error(`Holiday fetch failed for ${year}: ${error.message || error}`);
+    return null;
+  }
+}
+
+function holidayYearsForRange(range) {
+  if (!range?.start || !range?.end) return [];
+  const start = parseDateKey(range.start);
+  const end = parseDateKey(range.end);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return [];
+  const years = new Set();
+  for (let year = start.getFullYear(); year <= end.getFullYear(); year += 1) {
+    years.add(year);
+  }
+  return [...years];
+}
+
+function normalizeHolidayPayload(payload) {
+  const byDate = new Map();
+  for (const entry of Array.isArray(payload) ? payload : []) {
+    if (!entry || entry.global !== true) continue;
+    if (!Array.isArray(entry.types) || !entry.types.includes("Public")) continue;
+    if (typeof entry.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(entry.date)) continue;
+    const name = String(entry.localName || entry.name || "").trim() || "Dela prost dan";
+    byDate.set(entry.date, { date: entry.date, name });
+  }
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
 async function readJsonBody(req, maxBytes = 128 * 1024) {

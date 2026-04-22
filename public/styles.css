@@ -11,6 +11,9 @@
   --accent: #0b8f78;
   --accent-deep: #087964;
   --accent-soft: #e5f4f0;
+  --holiday: #b97712;
+  --holiday-soft: rgba(185, 119, 18, 0.14);
+  --holiday-line: rgba(185, 119, 18, 0.22);
   --danger: #e04b4b;
   --card-text: #1a2623;
   --card-text-muted: rgba(24, 33, 29, 0.78);
@@ -51,6 +54,9 @@
   --accent: #23c5a4;
   --accent-deep: #1aaa8c;
   --accent-soft: rgba(35, 197, 164, 0.14);
+  --holiday: #f3c267;
+  --holiday-soft: rgba(243, 194, 103, 0.16);
+  --holiday-line: rgba(243, 194, 103, 0.22);
   --danger: #f07373;
   --card-text: #0e1815;
   --card-text-muted: rgba(14, 24, 21, 0.78);
@@ -224,7 +230,7 @@ button { cursor: pointer; }
     [hour-column-start] 52px [hour-column-end]
     repeat(var(--day-count), minmax(150px, 1fr));
   grid-template-rows:
-    [day-row-start] 40px [day-row-end]
+    [day-row-start] 56px [day-row-end]
     repeat(var(--hour-count), var(--hour-height));
   min-width: 720px;
   position: relative;
@@ -251,6 +257,8 @@ button { cursor: pointer; }
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 0.14rem;
+  max-width: calc(100% - 0.6rem);
   line-height: 1.1;
 }
 
@@ -269,6 +277,14 @@ button { cursor: pointer; }
 
 .grid-day.is-today .day-date {
   color: var(--accent);
+}
+
+.grid-day.is-holiday {
+  background: linear-gradient(180deg, var(--holiday-soft), transparent 88%), var(--surface);
+}
+
+.grid-day.is-holiday .day-date {
+  color: var(--holiday);
 }
 
 .grid-hour {
@@ -299,6 +315,45 @@ button { cursor: pointer; }
 
 .grid-day-column.today {
   background: var(--today-wash);
+}
+
+.grid-day-column.holiday {
+  background:
+    linear-gradient(180deg, var(--holiday-soft), rgba(255, 255, 255, 0) 45%),
+    repeating-linear-gradient(
+      135deg,
+      var(--holiday-line) 0 8px,
+      rgba(255, 255, 255, 0) 8px 18px
+    );
+}
+
+.grid-day-column.today.holiday {
+  background:
+    var(--today-wash),
+    linear-gradient(180deg, var(--holiday-soft), rgba(255, 255, 255, 0) 45%),
+    repeating-linear-gradient(
+      135deg,
+      var(--holiday-line) 0 8px,
+      rgba(255, 255, 255, 0) 8px 18px
+    );
+}
+
+.holiday-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 0.14rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid var(--holiday-line);
+  background: var(--holiday-soft);
+  color: var(--holiday);
+  font-size: 0.58rem;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .now-line {
@@ -474,6 +529,7 @@ button { cursor: pointer; }
   top: var(--header-height);
   z-index: 4;
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 0.5rem;
   padding: 0.55rem 0.25rem;
@@ -499,6 +555,15 @@ button { cursor: pointer; }
 
 .mobile-day-header.is-today .day-name { color: var(--accent); }
 .mobile-day-header.is-today .day-date { color: var(--accent); }
+
+.mobile-day-header.is-holiday {
+  background: linear-gradient(180deg, var(--holiday-soft), transparent 85%), var(--mobile-day-bg);
+  border-bottom-color: var(--holiday-line);
+}
+
+.mobile-day-header .holiday-chip {
+  margin-top: 0.1rem;
+}
 
 .mobile-day-list {
   display: grid;

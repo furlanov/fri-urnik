@@ -582,11 +582,15 @@ function render() {
   const allOccurrences = expandWeek(state.schedule.events, state.weekStart);
   const visibleOccurrences = allOccurrences.filter((event) => state.filters[event.filterKey]);
   const days = displayDaysFor(allOccurrences);
-  const visibleDays = days.map((dayIndex) => ({
-    dayIndex,
-    date: addDays(state.weekStart, dayIndex === 0 ? 6 : dayIndex - 1),
-    events: visibleOccurrences.filter((event) => event.weekday === dayIndex),
-  }));
+  const visibleDays = days.map((dayIndex) => {
+    const date = addDays(state.weekStart, dayIndex === 0 ? 6 : dayIndex - 1);
+    return {
+      dayIndex,
+      date,
+      workFreeDay: holidayForDate(date),
+      events: visibleOccurrences.filter((event) => event.weekday === dayIndex),
+    };
+  });
 
   renderFilters();
   renderHeader();
@@ -736,9 +740,12 @@ function renderTimetable(days, visibleOccurrences) {
   for (const [index, day] of laidOutDays.entries()) {
     const column = document.createElement("div");
     const isToday = isSameDate(day.date, today);
-    column.className = `grid-day-column${isToday ? " today" : ""}`;
+    column.className = `grid-day-column${isToday ? " today" : ""}${day.workFreeDay ? " holiday" : ""}`;
     column.style.gridColumn = String(index + 2);
     if (isToday) column.dataset.today = "1";
+    if (day.workFreeDay) {
+      column.title = `Dela prost dan: ${day.workFreeDay.name}`;
+    }
 
     for (const event of day.events) {
       const top = ((event.startMinute - startHour * 60) / 60) * HOUR_HEIGHT;
@@ -803,6 +810,10 @@ function renderMobileSchedule(days) {
     const header = document.createElement("div");
     header.className = "mobile-day-header";
     if (isToday) header.classList.add("is-today");
+    if (day.workFreeDay) {
+      header.classList.add("is-holiday");
+      header.title = `Dela prost dan: ${day.workFreeDay.name}`;
+    }
     const name = document.createElement("span");
     name.className = "day-name";
     name.textContent = DAY_NAMES[day.dayIndex];
@@ -810,6 +821,9 @@ function renderMobileSchedule(days) {
     date.className = "day-date";
     date.textContent = formatDate(day.date);
     header.append(name, date);
+    if (day.workFreeDay) {
+      header.appendChild(createHolidayChip(day.workFreeDay));
+    }
     section.appendChild(header);
 
     const list = document.createElement("div");
@@ -848,8 +862,11 @@ function renderMobileSchedule(days) {
 function dayHeader(day, gridColumn, today) {
   const node = document.createElement("div");
   const isToday = isSameDate(day.date, today);
-  node.className = `grid-day${isToday ? " is-today" : ""}`;
+  node.className = `grid-day${isToday ? " is-today" : ""}${day.workFreeDay ? " is-holiday" : ""}`;
   node.style.gridColumn = String(gridColumn);
+  if (day.workFreeDay) {
+    node.title = `Dela prost dan: ${day.workFreeDay.name}`;
+  }
 
   const wrap = document.createElement("div");
   wrap.className = "grid-day-label";
@@ -859,8 +876,19 @@ function dayHeader(day, gridColumn, today) {
   date.className = "day-date";
   date.textContent = formatDate(day.date);
   wrap.append(name, date);
+  if (day.workFreeDay) {
+    wrap.appendChild(createHolidayChip(day.workFreeDay));
+  }
   node.appendChild(wrap);
   return node;
+}
+
+function createHolidayChip(workFreeDay) {
+  const chip = document.createElement("span");
+  chip.className = "holiday-chip";
+  chip.textContent = workFreeDay.name;
+  chip.title = `Dela prost dan: ${workFreeDay.name}`;
+  return chip;
 }
 
 function createEventCard(event) {
@@ -1072,6 +1100,10 @@ function assignLanes(group) {
 function displayDaysFor(occurrences) {
   const hasWeekend = occurrences.some((event) => event.weekday === 0 || event.weekday === 6);
   return hasWeekend ? [1, 2, 3, 4, 5, 6, 0] : [1, 2, 3, 4, 5];
+}
+
+function holidayForDate(date) {
+  return state.schedule?.holidays?.dates?.[toDateKey(date)] || null;
 }
 
 function colorFor(key, sourceColor) {
